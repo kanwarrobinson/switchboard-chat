@@ -121,32 +121,15 @@ async def list_sessions():
         List of session summaries
     """
     try:
-        # Get all checkpoints from MongoDB
-        checkpoints_collection = db.get_database()["checkpoints"]
+        # Get all sessions from MongoDB conversations collection
+        conversations_collection = db.get_database()["conversations"]
 
-        # Get unique thread_ids (session_ids)
-        pipeline = [
-            {
-                "$group": {
-                    "_id": "$thread_id",
-                    "first_checkpoint": {"$first": "$checkpoint"},
-                    "last_checkpoint": {"$last": "$checkpoint"},
-                    "count": {"$sum": 1}
-                }
-            },
-            {"$sort": {"last_checkpoint.ts": -1}},
-            {"$limit": 50}
-        ]
-
-        results = list(checkpoints_collection.aggregate(pipeline))
+        # Get all sessions, sorted by updated_at
+        sessions_cursor = conversations_collection.find().sort("updated_at", -1).limit(50)
 
         sessions = []
-        for result in results:
-            session_id = result["_id"]
-
-            # Get message count from last checkpoint
-            last_checkpoint = result.get("last_checkpoint", {})
-            messages = last_checkpoint.get("channel_values", {}).get("messages", [])
+        for session_doc in sessions_cursor:
+            messages = session_doc.get("messages", [])
             message_count = len(messages)
 
             # Get last message preview
@@ -156,15 +139,11 @@ async def list_sessions():
                 content = last_msg.get("content", "")
                 last_message_preview = content[:100]
 
-            # Timestamps
-            first_ts = result["first_checkpoint"].get("ts", datetime.utcnow().isoformat())
-            last_ts = last_checkpoint.get("ts", datetime.utcnow().isoformat())
-
             sessions.append(
                 SessionSummary(
-                    session_id=session_id,
-                    created_at=datetime.fromisoformat(first_ts.replace("Z", "+00:00")),
-                    updated_at=datetime.fromisoformat(last_ts.replace("Z", "+00:00")),
+                    session_id=session_doc["session_id"],
+                    created_at=session_doc.get("created_at", datetime.utcnow()),
+                    updated_at=session_doc.get("updated_at", datetime.utcnow()),
                     message_count=message_count,
                     last_message_preview=last_message_preview
                 )
@@ -192,10 +171,13 @@ async def get_session(session_id: str):
         Session detail with messages
     """
     try:
-        # Get conversation history
-        history = chat_graph.get_conversation_history(session_id)
+        # Get conversation from MongoDB
+        mongo_db = db.get_database()
+        conversations = mongo_db["conversations"]
 
-        if not history:
+        session_doc = conversations.find_one({"session_id": session_id})
+
+        if not session_doc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Session {session_id} not found"
@@ -203,26 +185,38 @@ async def get_session(session_id: str):
 
         # Convert to Message objects
         messages = []
-        for msg in history:
-            role = "user" if msg.type == "human" else "assistant"
+        for msg_doc in session_doc.get("messages", []):
+            metadata = msg_doc.get("metadata", {})
+
+            # Determine provider from model
+            model_used = metadata.get("model")
+            provider = None
+            if model_used:
+                if "gpt" in model_used.lower():
+                    provider = "openai"
+                elif "claude" in model_used.lower():
+                    provider = "anthropic"
+                elif "llama" in model_used.lower() or "mistral" in model_used.lower():
+                    provider = "self-hosted"
+
             messages.append(
                 Message(
-                    message_id=msg.id or generate_session_id(),
-                    role=role,
-                    content=msg.content,
-                    timestamp=datetime.utcnow(),  # LangGraph doesn't store timestamps by default
-                    model_used=msg.additional_kwargs.get("model") if role == "assistant" else None,
-                    provider=None,  # Would need to derive from model
-                    query_type=None,
-                    fallback_triggered=msg.additional_kwargs.get("fallback_triggered", False) if role == "assistant" else False
+                    message_id=generate_session_id(),
+                    role=msg_doc["role"],
+                    content=msg_doc["content"],
+                    timestamp=msg_doc.get("timestamp", datetime.utcnow()),
+                    model_used=model_used,
+                    provider=provider,
+                    query_type=msg_doc.get("query_type"),
+                    fallback_triggered=metadata.get("fallback_triggered", False)
                 )
             )
 
         return SessionDetail(
             session_id=session_id,
             messages=messages,
-            created_at=datetime.utcnow(),  # Would need to get from checkpoints
-            updated_at=datetime.utcnow(),
+            created_at=session_doc.get("created_at", datetime.utcnow()),
+            updated_at=session_doc.get("updated_at", datetime.utcnow()),
             message_count=len(messages)
         )
 

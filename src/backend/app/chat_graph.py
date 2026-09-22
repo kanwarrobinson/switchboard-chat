@@ -2,10 +2,11 @@ from typing import Annotated
 from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from langgraph.checkpoint.mongodb import MongoDBSaver
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from app.config import settings
 from app.database import db
+from datetime import datetime
 import structlog
 
 logger = structlog.get_logger()
@@ -19,7 +20,7 @@ class State(TypedDict):
 
 
 class ChatGraph:
-    """LangGraph-based chat system with MongoDB checkpointing"""
+    """LangGraph-based chat system with MongoDB storage"""
 
     def __init__(self, llm_client):
         """
@@ -29,21 +30,12 @@ class ChatGraph:
             llm_client: LLM client (LangChain-compatible)
         """
         self.llm_client = llm_client
-        self.checkpointer = None
+        self.checkpointer = MemorySaver()  # In-memory checkpointing for graph state
         self.graph = None
 
     def setup_checkpointer(self):
-        """Set up MongoDB checkpointer"""
-        try:
-            mongo_db = db.get_database()
-            self.checkpointer = MongoDBSaver(
-                client=db.client,
-                db_name=settings.MONGODB_DATABASE
-            )
-            logger.info("langgraph_checkpointer_initialized")
-        except Exception as e:
-            logger.error("langgraph_checkpointer_failed", error=str(e))
-            raise
+        """Set up checkpointer (using in-memory)"""
+        logger.info("langgraph_checkpointer_initialized", type="memory")
 
     def call_model(self, state: State) -> State:
         """
@@ -97,7 +89,7 @@ class ChatGraph:
 
     async def ainvoke(self, message: str, session_id: str, query_type: str = "faq"):
         """
-        Async invoke the chat graph.
+        Async invoke the chat graph and save to MongoDB.
 
         Args:
             message: User message
@@ -108,9 +100,12 @@ class ChatGraph:
             AI response message
         """
         try:
-            # Create input state
+            # Get previous messages from MongoDB
+            previous_messages = self._load_from_mongodb(session_id)
+
+            # Create input state with full history
             input_state = {
-                "messages": [HumanMessage(content=message)],
+                "messages": previous_messages + [HumanMessage(content=message)],
                 "query_type": query_type
             }
 
@@ -127,15 +122,85 @@ class ChatGraph:
             # Extract AI message
             ai_message = result["messages"][-1]
 
+            # Save conversation to MongoDB
+            self._save_to_mongodb(session_id, message, ai_message.content, query_type, ai_message.additional_kwargs)
+
             return ai_message
 
         except Exception as e:
             logger.error("chat_graph_invoke_failed", error=str(e), session_id=session_id)
             raise
 
+    def _load_from_mongodb(self, session_id: str) -> list[BaseMessage]:
+        """Load conversation history from MongoDB"""
+        try:
+            mongo_db = db.get_database()
+            conversations = mongo_db["conversations"]
+
+            session = conversations.find_one({"session_id": session_id})
+            if not session:
+                return []
+
+            messages = []
+            for msg in session.get("messages", []):
+                if msg["role"] == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                else:
+                    messages.append(AIMessage(
+                        content=msg["content"],
+                        additional_kwargs=msg.get("metadata", {})
+                    ))
+
+            return messages
+        except Exception as e:
+            logger.error("load_from_mongodb_failed", error=str(e), session_id=session_id)
+            return []
+
+    def _save_to_mongodb(self, session_id: str, user_message: str, ai_message: str, query_type: str, metadata: dict):
+        """Save conversation to MongoDB"""
+        try:
+            mongo_db = db.get_database()
+            conversations = mongo_db["conversations"]
+
+            # Prepare messages
+            user_msg = {
+                "role": "user",
+                "content": user_message,
+                "timestamp": datetime.utcnow(),
+                "query_type": query_type
+            }
+
+            ai_msg = {
+                "role": "assistant",
+                "content": ai_message,
+                "timestamp": datetime.utcnow(),
+                "query_type": query_type,
+                "metadata": metadata
+            }
+
+            # Upsert session
+            conversations.update_one(
+                {"session_id": session_id},
+                {
+                    "$push": {"messages": {"$each": [user_msg, ai_msg]}},
+                    "$set": {
+                        "updated_at": datetime.utcnow()
+                    },
+                    "$setOnInsert": {
+                        "created_at": datetime.utcnow()
+                    }
+                },
+                upsert=True
+            )
+
+            logger.info("saved_to_mongodb", session_id=session_id, message_count=2)
+
+        except Exception as e:
+            logger.error("save_to_mongodb_failed", error=str(e), session_id=session_id)
+
     def get_conversation_history(self, session_id: str):
         """
-        Get conversation history for a session.
+        Get conversation history for a session from MongoDB.
 
         Args:
             session_id: Session ID
@@ -144,13 +209,15 @@ class ChatGraph:
             List of messages
         """
         try:
-            config = {"configurable": {"thread_id": session_id}}
-            state = self.graph.get_state(config)
+            mongo_db = db.get_database()
+            conversations = mongo_db["conversations"]
 
-            if state and state.values:
-                return state.values.get("messages", [])
+            session = conversations.find_one({"session_id": session_id})
+            if not session:
+                return []
 
-            return []
+            return session.get("messages", [])
+
         except Exception as e:
             logger.error("get_conversation_history_failed", error=str(e), session_id=session_id)
             return []

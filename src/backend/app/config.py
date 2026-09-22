@@ -17,7 +17,10 @@ class Settings:
 
     @property
     def MONGODB_URI(self) -> str:
-        return f"mongodb://{self.MONGODB_USERNAME}:{self.MONGODB_PASSWORD}@{self.MONGODB_HOST}:{self.MONGODB_PORT}"
+        # If no username/password, connect without auth (local development)
+        if not self.MONGODB_USERNAME or not self.MONGODB_PASSWORD:
+            return f"mongodb://{self.MONGODB_HOST}:{self.MONGODB_PORT}"
+        return f"mongodb://{self.MONGODB_USERNAME}:{self.MONGODB_PASSWORD}@{self.MONGODB_HOST}:{self.MONGODB_PORT}/?authSource=admin"
 
     # AI Gateway
     GATEWAY_BASE_URL: str = os.getenv("GATEWAY_BASE_URL", "http://localhost:8080/v1")
