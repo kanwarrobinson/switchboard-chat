@@ -1,0 +1,14 @@
+{{- if .Values.networkPolicies.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all
+  namespace: {{ .Values.namespaces.db }}
+spec:
+  # Select all pods in the db namespace
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  # No ingress rules = deny all ingress by default.
+  # Only allow-backend-to-mongo.yaml opens {{ .Values.mongodb.port }} from the app namespace.
+{{- end }}

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: switchboard-chat
+description: >-
+  Base Helm chart for the switchboard-chat starter — backend + frontend + MongoDB,
+  network policies, and ingress. Rename this (and the values below) when you fork
+  the project for something new.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

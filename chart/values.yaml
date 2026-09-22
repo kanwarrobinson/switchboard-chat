@@ -1,0 +1,122 @@
+# ─────────────────────────────────────────────
+#  switchboard-chat — Helm values
+#
+#  This is the ONE file to edit when adapting this base project for your own
+#  app: image names, ports, replica counts, resource sizing, hostnames. Nothing
+#  under templates/ should need hand-editing for day-to-day changes.
+#
+#  Real credentials do NOT belong in this file (it's meant to be committed).
+#  Copy values-secrets.example.yaml to values-secrets.yaml (gitignored) and pass
+#  it as an extra -f on top of this file — see chart/README.md.
+# ─────────────────────────────────────────────
+
+project:
+  # Human-readable name, used only in labels — doesn't affect DNS or resource names.
+  name: switchboard-chat
+
+namespaces:
+  app: app
+  db: db
+
+# ── Backend (Node.js/Express) ────────────────
+backend:
+  name: backend
+  image:
+    repository: backend
+    tag: local
+    pullPolicy: Never
+  port: 3000
+  replicas: 1
+  env:
+    NODE_ENV: development
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 100m
+  probes:
+    path: /health
+    liveness:
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      failureThreshold: 3
+  # Placeholder dev credentials — override via values-secrets.yaml, never edit these in place.
+  secret:
+    MONGO_USERNAME: root
+    MONGO_PASSWORD: rootpassword
+
+# ── Frontend (nginx) ──────────────────────────
+frontend:
+  name: frontend
+  image:
+    repository: frontend
+    tag: local
+    pullPolicy: Never
+  port: 80
+  replicas: 1
+  env:
+    APP_ENV: development
+  resources:
+    requests:
+      memory: 32Mi
+      cpu: 25m
+    limits:
+      memory: 64Mi
+      cpu: 50m
+  probes:
+    path: /health
+    liveness:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 3
+      periodSeconds: 5
+      failureThreshold: 3
+  # Placeholder — override via values-secrets.yaml.
+  secret:
+    API_KEY: changeme
+
+# ── MongoDB ───────────────────────────────────
+mongodb:
+  name: mongodb
+  image:
+    repository: mongo
+    tag: "7.0"
+    pullPolicy: IfNotPresent
+  port: 27017
+  storage: 1Gi
+  # Placeholder dev credentials — override via values-secrets.yaml, never edit these in place.
+  auth:
+    rootUsername: root
+    rootPassword: rootpassword
+    database: appdb
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+# ── Networking ────────────────────────────────
+networkPolicies:
+  enabled: true
+  # Namespace the nginx ingress controller runs in — must match install.sh / the
+  # ingress-nginx helm release namespace for the allow-ingress-to-app policy to work.
+  ingressNamespace: ingress-nginx
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+  # Leave blank to match any Host header (fine for localhost/kind). Set to a real
+  # hostname once this is deployed somewhere with DNS.
+  host: ""

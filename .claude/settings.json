@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl:*)",
+      "Bash(kind:*)",
+      "Bash(docker build:*)",
+      "Bash(docker images:*)",
+      "Bash(docker rmi:*)",
+      "Bash(helm:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(echo:*)",
+      "Bash(chmod:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)"
+    ]
+  }
+}

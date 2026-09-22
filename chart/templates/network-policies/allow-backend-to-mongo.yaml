@@ -1,0 +1,26 @@
+{{- if .Values.networkPolicies.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-mongo
+  namespace: {{ .Values.namespaces.db }}
+spec:
+  # Apply to mongodb pods in the db namespace
+  podSelector:
+    matchLabels:
+      app: {{ .Values.mongodb.name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Allow from pods labelled app=backend in the app namespace
+        - namespaceSelector:
+            matchLabels:
+              name: {{ .Values.namespaces.app }}
+          podSelector:
+            matchLabels:
+              app: {{ .Values.backend.name }}
+      ports:
+        - port: {{ .Values.mongodb.port }}
+          protocol: TCP
+{{- end }}

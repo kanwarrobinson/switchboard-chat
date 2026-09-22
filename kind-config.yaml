@@ -1,0 +1,27 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: switchboard-chat-cluster
+
+networking:
+  # Disable default kindnet CNI — we install Calico for NetworkPolicy support
+  disableDefaultCNI: true
+  # Must match Calico's default pod CIDR
+  podSubnet: "192.168.0.0/16"
+
+nodes:
+  - role: control-plane
+    # Label node so nginx ingress controller can find it
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    # Map host ports 80 and 443 into the kind node for ingress
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP

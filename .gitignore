@@ -1,0 +1,27 @@
+# Real secrets — never commit these. See chart/README.md.
+chart/values-secrets.yaml
+
+# Node
+node_modules/
+npm-debug.log*
+src/**/dist/
+src/**/build/
+
+# Editors / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# kind / kubeconfig exports someone might drop locally
+kubeconfig*.yaml
+*.kubeconfig
+
+# Helm
+chart/charts/
+chart/*.tgz
+
+# Local env overrides
+.env
+.env.local

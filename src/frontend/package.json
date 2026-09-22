@@ -1,0 +1,8 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "description": "k8s base project — frontend service",
+  "scripts": {
+    "build": "echo 'Static site — no build step required'"
+  }
+}
